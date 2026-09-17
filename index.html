@@ -23,9 +23,10 @@
       flex-wrap: wrap;
       justify-content: center;
       gap: 8px;
+      align-items: center;
     }
-    button {
-      padding: 10px 16px;
+    button, select {
+      padding: 10px 14px;
       font-size: 15px;
       border-radius: 6px;
       border: 1px solid #999;
@@ -81,6 +82,13 @@
 <body>
 
 <div id="toolbar">
+  <!-- 棋盘路数选择器 -->
+  <select id="board-size-select" onchange="changeBoardSize(parseInt(this.value), true)">
+    <option value="19" selected>19路 棋盘</option>
+    <option value="13">13路 棋盘</option>
+    <option value="9">9路 棋盘</option>
+  </select>
+
   <button id="mode-move" class="active" onclick="setMode('move')">⚫⚪ 落子模式</button>
 
   <div id="color-selector">
@@ -99,37 +107,60 @@
 </div>
 
 <script>
-  // 1. 初始化 Supabase 实时通道 (替换为你的实际 Key)
-  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-  const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
-  let channel = null;
+  // Supabase Credentials
+  const SUPABASE_URL = 'https://vgxlhcbdemlnzazfwyam.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_OTz9K2t_op2cn7LnKlewXA_H3Tv958m';
 
-  if (SUPABASE_URL !== 'YOUR_SUPABASE_URL') {
-    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    channel = supabaseClient.channel('go_room_101');
-  }
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const channel = supabaseClient.channel('go_room_101');
 
-  const size = 19;
+  let size = 19;
   const padding = 30;
   const containerSize = 600;
-  const cellSize = (containerSize - padding * 2) / (size - 1);
+  let cellSize = (containerSize - padding * 2) / (size - 1);
 
   const boardCanvas = document.getElementById('boardCanvas');
   const drawCanvas = document.getElementById('drawCanvas');
   const bCtx = boardCanvas.getContext('2d');
   const dCtx = drawCanvas.getContext('2d');
 
-  let mode = 'move'; // 'move', 'remove', or 'draw'
+  let mode = 'move';
   let currentColor = 1; // 1: 黑, 2: 白
   let board = Array.from({ length: size }, () => Array(size).fill(0));
   let isDrawing = false;
   let lastPos = null;
 
-  // 绘制 19x19 网格与星位
+  // 切换棋盘尺寸 (9, 13, 19)
+  function changeBoardSize(newSize, broadcast = false) {
+    size = newSize;
+    cellSize = (containerSize - padding * 2) / (size - 1);
+    board = Array.from({ length: size }, () => Array(size).fill(0));
+    document.getElementById('board-size-select').value = size;
+
+    clearDraw(false);
+    drawBoard();
+
+    if (broadcast) {
+      channel.send({ type: 'broadcast', event: 'resize', payload: { size: newSize } });
+    }
+  }
+
+  // 获取不同网格对应的星位坐标 (Star points / Hoshi)
+  function getStarPoints(boardSize) {
+    if (boardSize === 19) {
+      return [ [3, 3], [3, 9], [3, 15], [9, 3], [9, 9], [9, 15], [15, 3], [15, 9], [15, 15] ];
+    } else if (boardSize === 13) {
+      return [ [3, 3], [3, 9], [6, 6], [9, 3], [9, 9] ];
+    } else if (boardSize === 9) {
+      return [ [2, 2], [2, 6], [4, 4], [6, 2], [6, 6] ];
+    }
+    return [];
+  }
+
+  // 绘制网格与星位
   function drawBoard() {
     bCtx.clearRect(0, 0, containerSize, containerSize);
 
-    // 绘制棋盘边框与网格线
     bCtx.strokeStyle = '#000000';
     bCtx.lineWidth = 1.5;
 
@@ -147,14 +178,13 @@
       bCtx.stroke();
     }
 
-    // 绘制 9 个星位 (Star points)
+    // 绘制星位
     bCtx.fillStyle = '#000000';
-    [3, 9, 15].forEach(x => {
-      [3, 9, 15].forEach(y => {
-        bCtx.beginPath();
-        bCtx.arc(padding + x * cellSize, padding + y * cellSize, 4, 0, Math.PI * 2);
-        bCtx.fill();
-      });
+    const stars = getStarPoints(size);
+    stars.forEach(([x, y]) => {
+      bCtx.beginPath();
+      bCtx.arc(padding + x * cellSize, padding + y * cellSize, 4, 0, Math.PI * 2);
+      bCtx.fill();
     });
 
     // 绘制已落下的棋子
@@ -178,8 +208,6 @@
     document.getElementById('mode-move').className = mode === 'move' ? 'active' : '';
     document.getElementById('mode-remove').className = mode === 'remove' ? 'remove-mode active' : 'remove-mode';
     document.getElementById('mode-draw').className = mode === 'draw' ? 'active' : '';
-
-    // 控制黑白选择按钮的显示与隐藏
     document.getElementById('color-selector').style.display = mode === 'move' ? 'flex' : 'none';
   }
 
@@ -189,7 +217,7 @@
     document.getElementById('btn-color-white').className = currentColor === 2 ? 'color-sub-btn selected' : 'color-sub-btn';
   }
 
-  // 鼠标 / 触控交互
+  // 交互控制
   drawCanvas.addEventListener('pointerdown', (e) => {
     const rect = drawCanvas.getBoundingClientRect();
     const scaleX = containerSize / rect.width;
@@ -201,27 +229,19 @@
     const gy = Math.round((y - padding) / cellSize);
 
     if (mode === 'move') {
-      // 1. 落子模式
       if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] === 0) {
         board[gx][gy] = currentColor;
-        if (channel) {
-          channel.send({ type: 'broadcast', event: 'move', payload: { gx, gy, color: currentColor } });
-        }
-        // 默认自动切换颜色（下完黑子自动切白子）
+        channel.send({ type: 'broadcast', event: 'move', payload: { gx, gy, color: currentColor } });
         setColor(currentColor === 1 ? 2 : 1);
         drawBoard();
       }
     } else if (mode === 'remove') {
-      // 2. 提子/吃子模式
       if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] !== 0) {
         board[gx][gy] = 0;
-        if (channel) {
-          channel.send({ type: 'broadcast', event: 'remove', payload: { gx, gy } });
-        }
+        channel.send({ type: 'broadcast', event: 'remove', payload: { gx, gy } });
         drawBoard();
       }
     } else {
-      // 3. 画笔模式
       isDrawing = true;
       lastPos = { x, y };
     }
@@ -238,9 +258,7 @@
       };
 
       drawLine(lastPos, currentPos, '#ff0000');
-      if (channel) {
-        channel.send({ type: 'broadcast', event: 'draw', payload: { from: lastPos, to: currentPos } });
-      }
+      channel.send({ type: 'broadcast', event: 'draw', payload: { from: lastPos, to: currentPos } });
       lastPos = currentPos;
     }
   });
@@ -259,29 +277,29 @@
 
   function clearDraw(broadcast = false) {
     dCtx.clearRect(0, 0, containerSize, containerSize);
-    if (broadcast && channel) channel.send({ type: 'broadcast', event: 'clear' });
+    if (broadcast) channel.send({ type: 'broadcast', event: 'clear' });
   }
 
-  // 绑定 Supabase 广播监听
-  if (channel) {
-    channel
-      .on('broadcast', { event: 'move' }, ({ payload }) => {
-        board[payload.gx][payload.gy] = payload.color;
-        setColor(payload.color === 1 ? 2 : 1);
-        drawBoard();
-      })
-      .on('broadcast', { event: 'remove' }, ({ payload }) => {
-        board[payload.gx][payload.gy] = 0;
-        drawBoard();
-      })
-      .on('broadcast', { event: 'draw' }, ({ payload }) => {
-        drawLine(payload.from, payload.to, '#ff0000');
-      })
-      .on('broadcast', { event: 'clear' }, () => clearDraw(false))
-      .subscribe();
-  }
+  // 监听 Supabase 广播
+  channel
+    .on('broadcast', { event: 'move' }, ({ payload }) => {
+      board[payload.gx][payload.gy] = payload.color;
+      setColor(payload.color === 1 ? 2 : 1);
+      drawBoard();
+    })
+    .on('broadcast', { event: 'remove' }, ({ payload }) => {
+      board[payload.gx][payload.gy] = 0;
+      drawBoard();
+    })
+    .on('broadcast', { event: 'draw' }, ({ payload }) => {
+      drawLine(payload.from, payload.to, '#ff0000');
+    })
+    .on('broadcast', { event: 'clear' }, () => clearDraw(false))
+    .on('broadcast', { event: 'resize' }, ({ payload }) => {
+      changeBoardSize(payload.size, false);
+    })
+    .subscribe();
 
-  // 页面加载完成后即刻渲染网格
   window.onload = () => {
     drawBoard();
   };
