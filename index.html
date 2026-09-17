@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>中美围棋互动教学板</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { margin: 0; display: flex; flex-direction: column; align-items: center; background: #f0e6d2; font-family: sans-serif; touch-action: none; }
+    #toolbar { margin: 10px; display: flex; gap: 10px; }
+    button { padding: 8px 16px; font-size: 16px; border-radius: 6px; border: 1px solid #999; background: #fff; cursor: pointer; }
+    button.active { background: #4CAF50; color: white; border-color: #4CAF50; }
+    #canvas-container { position: relative; width: 600px; height: 600px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); background: #e3a857; }
+    canvas { position: absolute; top: 0; left: 0; }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="mode-move" class="active" onclick="setMode('move')">⚫⚪ 落子模式</button>
+  <button id="mode-draw" onclick="setMode('draw')">✏️ 鼠标画笔</button>
+  <button onclick="clearDraw(true)">🗑️ 清除画笔</button>
+</div>
+
+<div id="canvas-container">
+  <canvas id="boardCanvas" width="600" height="600"></canvas>
+  <canvas id="drawCanvas" width="600" height="600"></canvas>
+</div>
+
+<script>
+  // 1. 初始化 Supabase 实时通道 (填入你的免费 API key)
+  const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+  const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const channel = supabaseClient.channel('go_room_101');
+
+  const size = 19;
+  const padding = 30;
+  const containerSize = 600;
+  const cellSize = (containerSize - padding * 2) / (size - 1);
+
+  const bCtx = document.getElementById('boardCanvas').getContext('2d');
+  const drawCanvas = document.getElementById('drawCanvas');
+  const dCtx = drawCanvas.getContext('2d');
+
+  let mode = 'move';
+  let currentColor = 1;
+  let board = Array.from({ length: size }, () => Array(size).fill(0));
+  let isDrawing = false;
+  let lastPos = null;
+
+  // 绘制棋盘
+  function drawBoard() {
+    bCtx.clearRect(0, 0, containerSize, containerSize);
+    bCtx.strokeStyle = '#000';
+    bCtx.lineWidth = 1;
+
+    for (let i = 0; i < size; i++) {
+      bCtx.beginPath(); bCtx.moveTo(padding + i * cellSize, padding); bCtx.lineTo(padding + i * cellSize, containerSize - padding); bCtx.stroke();
+      bCtx.beginPath(); bCtx.moveTo(padding, padding + i * cellSize); bCtx.lineTo(containerSize - padding, padding + i * cellSize); bCtx.stroke();
+    }
+
+    [3, 9, 15].forEach(x => [3, 9, 15].forEach(y => {
+      bCtx.beginPath(); bCtx.arc(padding + x * cellSize, padding + y * cellSize, 4, 0, Math.PI * 2); bCtx.fill();
+    }));
+
+    for (let x = 0; x < size; x++) {
+      for (let y = 0; y < size; y++) {
+        if (board[x][y] !== 0) {
+          bCtx.beginPath();
+          bCtx.arc(padding + x * cellSize, padding + y * cellSize, cellSize * 0.45, 0, Math.PI * 2);
+          bCtx.fillStyle = board[x][y] === 1 ? '#000' : '#fff';
+          bCtx.fill();
+          bCtx.strokeStyle = '#333';
+          bCtx.stroke();
+        }
+      }
+    }
+  }
+
+  function setMode(m) {
+    mode = m;
+    document.getElementById('mode-move').className = mode === 'move' ? 'active' : '';
+    document.getElementById('mode-draw').className = mode === 'draw' ? 'active' : '';
+  }
+
+  // 鼠标 / 手指按下
+  drawCanvas.addEventListener('pointerdown', (e) => {
+    const rect = drawCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (mode === 'move') {
+      const gx = Math.round((x - padding) / cellSize);
+      const gy = Math.round((y - padding) / cellSize);
+      if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] === 0) {
+        board[gx][gy] = currentColor;
+        channel.send({ type: 'broadcast', event: 'move', payload: { gx, gy, color: currentColor } });
+        currentColor = currentColor === 1 ? 2 : 1;
+        drawBoard();
+      }
+    } else {
+      isDrawing = true;
+      lastPos = { x, y };
+    }
+  });
+
+  // 鼠标 / 手指移动画线
+  drawCanvas.addEventListener('pointermove', (e) => {
+    if (mode === 'draw' && isDrawing) {
+      const rect = drawCanvas.getBoundingClientRect();
+      const currentPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      
+      drawLine(lastPos, currentPos, 'red');
+      channel.send({ type: 'broadcast', event: 'draw', payload: { from: lastPos, to: currentPos } });
+      lastPos = currentPos;
+    }
+  });
+
+  drawCanvas.addEventListener('pointerup', () => isDrawing = false);
+
+  function drawLine(from, to, color) {
+    dCtx.beginPath();
+    dCtx.moveTo(from.x, from.y);
+    dCtx.lineTo(to.x, to.y);
+    dCtx.strokeStyle = color;
+    dCtx.lineWidth = 3;
+    dCtx.lineCap = 'round';
+    dCtx.stroke();
+  }
+
+  function clearDraw(broadcast = false) {
+    dCtx.clearRect(0, 0, containerSize, containerSize);
+    if (broadcast) channel.send({ type: 'broadcast', event: 'clear' });
+  }
+
+  // 监听对方广播消息
+  channel
+    .on('broadcast', { event: 'move' }, ({ payload }) => {
+      board[payload.gx][payload.gy] = payload.color;
+      currentColor = payload.color === 1 ? 2 : 1;
+      drawBoard();
+    })
+    .on('broadcast', { event: 'draw' }, ({ payload }) => {
+      drawLine(payload.from, payload.to, 'red');
+    })
+    .on('broadcast', { event: 'clear' }, () => clearDraw(false))
+    .subscribe();
+
+  drawBoard();
+</script>
+</body>
+</html>
