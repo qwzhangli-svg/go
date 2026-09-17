@@ -62,6 +62,15 @@
       padding: 2px 6px;
       border-radius: 8px;
     }
+    #status-bar {
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      background: rgba(255,255,255,0.7);
+      padding: 4px 12px;
+      border-radius: 12px;
+    }
     #canvas-container {
       position: relative;
       width: 600px;
@@ -77,12 +86,36 @@
       width: 100%;
       height: 100%;
     }
+    #lock-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(240, 230, 210, 0.96);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+    #lock-overlay h2 {
+      margin-bottom: 12px;
+      color: #333;
+    }
   </style>
 </head>
 <body>
 
+<!-- 解锁/人数限制遮罩 -->
+<div id="lock-overlay">
+  <h2 id="lock-msg">🔒 围棋教室访问受限</h2>
+  <button id="btn-unlock" onclick="checkPin()">点击输入密码解锁</button>
+</div>
+
+<div id="status-bar">🟢 当前在线：等待连接...</div>
+
 <div id="toolbar">
-  <!-- 棋盘路数选择器 -->
   <select id="board-size-select" onchange="changeBoardSize(parseInt(this.value), true)">
     <option value="19" selected>19路 棋盘</option>
     <option value="13">13路 棋盘</option>
@@ -107,12 +140,99 @@
 </div>
 
 <script>
-  // Supabase Credentials
+  const CLASS_PIN = '8888';
+
   const SUPABASE_URL = 'https://vgxlhcbdemlnzazfwyam.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_OTz9K2t_op2cn7LnKlewXA_H3Tv958m';
 
-  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  const channel = supabaseClient.channel('go_room_101');
+  let supabaseClient = null;
+  let channel = null;
+  let isAuthorized = false;
+  const myUserId = 'user_' + Math.random().toString(36).substr(2, 9);
+
+  function checkPin() {
+    const userInput = prompt("请输入课堂密码：");
+    if (userInput === CLASS_PIN) {
+      isAuthorized = true;
+      document.getElementById('lock-overlay').style.display = 'none';
+      initSupabase();
+      drawBoard();
+    } else if (userInput !== null) {
+      alert("密码错误，无法访问！");
+    }
+  }
+
+  function updateStatus(text) {
+    document.getElementById('status-bar').innerText = text;
+  }
+
+  function resetToEmptyBoard() {
+    board = Array.from({ length: size }, () => Array(size).fill(0));
+    currentColor = 1;
+    setColor(1);
+    clearDraw(false);
+    drawBoard();
+  }
+
+  function initSupabase() {
+    supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    channel = supabaseClient.channel('go_room_101', {
+      config: { presence: { key: myUserId } }
+    });
+
+    // 1. 监听 Presence 在线人数
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const userCount = Object.keys(state).length;
+
+        if (userCount > 2) {
+          // 超过 2 人，拦截第 3 个及以上的人
+          document.getElementById('lock-overlay').style.display = 'flex';
+          document.getElementById('lock-msg').innerText = '🚫 课堂房间满员（限制 2 人）';
+          document.getElementById('btn-unlock').style.display = 'none';
+          isAuthorized = false;
+          channel.unsubscribe();
+        } else if (userCount === 2) {
+          updateStatus('🟢 中美双方已连接 (2/2人) - 已自动重置空棋盘');
+        } else {
+          updateStatus('🟡 已进入房间 (1/2人) - 等待对方加入...');
+        }
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
+        // 当第 2 个人加入时，广播 reset_board 指令，确保双方同时清空棋盘
+        const state = channel.presenceState();
+        if (Object.keys(state).length === 2) {
+          channel.send({ type: 'broadcast', event: 'reset_board' });
+          resetToEmptyBoard();
+        }
+      })
+      // 2. 监听广播消息
+      .on('broadcast', { event: 'reset_board' }, () => {
+        resetToEmptyBoard();
+      })
+      .on('broadcast', { event: 'move' }, ({ payload }) => {
+        board[payload.gx][payload.gy] = payload.color;
+        setColor(payload.color === 1 ? 2 : 1);
+        drawBoard();
+      })
+      .on('broadcast', { event: 'remove' }, ({ payload }) => {
+        board[payload.gx][payload.gy] = 0;
+        drawBoard();
+      })
+      .on('broadcast', { event: 'draw' }, ({ payload }) => {
+        drawLine(payload.from, payload.to, '#ff0000');
+      })
+      .on('broadcast', { event: 'clear' }, () => clearDraw(false))
+      .on('broadcast', { event: 'resize' }, ({ payload }) => {
+        changeBoardSize(payload.size, false);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+  }
 
   let size = 19;
   const padding = 30;
@@ -125,27 +245,24 @@
   const dCtx = drawCanvas.getContext('2d');
 
   let mode = 'move';
-  let currentColor = 1; // 1: 黑, 2: 白
+  let currentColor = 1;
   let board = Array.from({ length: size }, () => Array(size).fill(0));
   let isDrawing = false;
   let lastPos = null;
 
-  // 切换棋盘尺寸 (9, 13, 19)
   function changeBoardSize(newSize, broadcast = false) {
+    if (!isAuthorized) return;
     size = newSize;
     cellSize = (containerSize - padding * 2) / (size - 1);
-    board = Array.from({ length: size }, () => Array(size).fill(0));
     document.getElementById('board-size-select').value = size;
 
-    clearDraw(false);
-    drawBoard();
+    resetToEmptyBoard();
 
-    if (broadcast) {
+    if (broadcast && channel) {
       channel.send({ type: 'broadcast', event: 'resize', payload: { size: newSize } });
     }
   }
 
-  // 获取不同网格对应的星位坐标 (Star points / Hoshi)
   function getStarPoints(boardSize) {
     if (boardSize === 19) {
       return [ [3, 3], [3, 9], [3, 15], [9, 3], [9, 9], [9, 15], [15, 3], [15, 9], [15, 15] ];
@@ -157,28 +274,25 @@
     return [];
   }
 
-  // 绘制网格与星位
   function drawBoard() {
+    if (!isAuthorized) return;
     bCtx.clearRect(0, 0, containerSize, containerSize);
 
     bCtx.strokeStyle = '#000000';
     bCtx.lineWidth = 1.5;
 
     for (let i = 0; i < size; i++) {
-      // 竖线
       bCtx.beginPath();
       bCtx.moveTo(padding + i * cellSize, padding);
       bCtx.lineTo(padding + i * cellSize, containerSize - padding);
       bCtx.stroke();
 
-      // 横线
       bCtx.beginPath();
       bCtx.moveTo(padding, padding + i * cellSize);
       bCtx.lineTo(containerSize - padding, padding + i * cellSize);
       bCtx.stroke();
     }
 
-    // 绘制星位
     bCtx.fillStyle = '#000000';
     const stars = getStarPoints(size);
     stars.forEach(([x, y]) => {
@@ -187,7 +301,6 @@
       bCtx.fill();
     });
 
-    // 绘制已落下的棋子
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
         if (board[x][y] !== 0) {
@@ -204,6 +317,7 @@
   }
 
   function setMode(m) {
+    if (!isAuthorized) return;
     mode = m;
     document.getElementById('mode-move').className = mode === 'move' ? 'active' : '';
     document.getElementById('mode-remove').className = mode === 'remove' ? 'remove-mode active' : 'remove-mode';
@@ -212,13 +326,14 @@
   }
 
   function setColor(c) {
+    if (!isAuthorized) return;
     currentColor = c;
     document.getElementById('btn-color-black').className = currentColor === 1 ? 'color-sub-btn selected' : 'color-sub-btn';
     document.getElementById('btn-color-white').className = currentColor === 2 ? 'color-sub-btn selected' : 'color-sub-btn';
   }
 
-  // 交互控制
   drawCanvas.addEventListener('pointerdown', (e) => {
+    if (!isAuthorized) return;
     const rect = drawCanvas.getBoundingClientRect();
     const scaleX = containerSize / rect.width;
     const scaleY = containerSize / rect.height;
@@ -231,14 +346,18 @@
     if (mode === 'move') {
       if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] === 0) {
         board[gx][gy] = currentColor;
-        channel.send({ type: 'broadcast', event: 'move', payload: { gx, gy, color: currentColor } });
+        if (channel) {
+          channel.send({ type: 'broadcast', event: 'move', payload: { gx, gy, color: currentColor } });
+        }
         setColor(currentColor === 1 ? 2 : 1);
         drawBoard();
       }
     } else if (mode === 'remove') {
       if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] !== 0) {
         board[gx][gy] = 0;
-        channel.send({ type: 'broadcast', event: 'remove', payload: { gx, gy } });
+        if (channel) {
+          channel.send({ type: 'broadcast', event: 'remove', payload: { gx, gy } });
+        }
         drawBoard();
       }
     } else {
@@ -248,6 +367,7 @@
   });
 
   drawCanvas.addEventListener('pointermove', (e) => {
+    if (!isAuthorized) return;
     if (mode === 'draw' && isDrawing) {
       const rect = drawCanvas.getBoundingClientRect();
       const scaleX = containerSize / rect.width;
@@ -258,7 +378,9 @@
       };
 
       drawLine(lastPos, currentPos, '#ff0000');
-      channel.send({ type: 'broadcast', event: 'draw', payload: { from: lastPos, to: currentPos } });
+      if (channel) {
+        channel.send({ type: 'broadcast', event: 'draw', payload: { from: lastPos, to: currentPos } });
+      }
       lastPos = currentPos;
     }
   });
@@ -276,32 +398,13 @@
   }
 
   function clearDraw(broadcast = false) {
+    if (!isAuthorized) return;
     dCtx.clearRect(0, 0, containerSize, containerSize);
-    if (broadcast) channel.send({ type: 'broadcast', event: 'clear' });
+    if (broadcast && channel) channel.send({ type: 'broadcast', event: 'clear' });
   }
 
-  // 监听 Supabase 广播
-  channel
-    .on('broadcast', { event: 'move' }, ({ payload }) => {
-      board[payload.gx][payload.gy] = payload.color;
-      setColor(payload.color === 1 ? 2 : 1);
-      drawBoard();
-    })
-    .on('broadcast', { event: 'remove' }, ({ payload }) => {
-      board[payload.gx][payload.gy] = 0;
-      drawBoard();
-    })
-    .on('broadcast', { event: 'draw' }, ({ payload }) => {
-      drawLine(payload.from, payload.to, '#ff0000');
-    })
-    .on('broadcast', { event: 'clear' }, () => clearDraw(false))
-    .on('broadcast', { event: 'resize' }, ({ payload }) => {
-      changeBoardSize(payload.size, false);
-    })
-    .subscribe();
-
   window.onload = () => {
-    drawBoard();
+    checkPin();
   };
 </script>
 </body>
