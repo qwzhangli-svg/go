@@ -9,71 +9,82 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 10px;
+      padding: 10px 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       background: #f0e6d2;
-      font-family: sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       touch-action: none;
     }
+
+    #status-bar {
+      margin-bottom: 10px;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      background: rgba(255,255,255,0.85);
+      padding: 6px 16px;
+      border-radius: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+
     #toolbar {
       margin-bottom: 12px;
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
-      width: 100%;
+      width: 95vw;
       max-width: 600px;
     }
+
     button, select {
-      padding: 10px 14px;
-      font-size: 15px;
+      padding: 8px 12px;
+      font-size: 14px;
       border-radius: 6px;
       border: 1px solid #999;
       background: #fff;
       cursor: pointer;
       font-weight: bold;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
+
     button.active {
       background: #4CAF50;
       color: white;
       border-color: #4CAF50;
     }
+
     button.remove-mode.active {
       background: #e53935;
       color: white;
       border-color: #e53935;
     }
+
     .color-sub-btn {
-      padding: 8px 12px;
-      font-size: 14px;
+      padding: 6px 10px;
+      font-size: 13px;
       border: 2px solid #666;
     }
+
     .color-sub-btn.selected {
       border-color: #2196F3;
       box-shadow: 0 0 5px rgba(33, 150, 243, 0.8);
       background: #e3f2fd;
     }
+
     #color-selector {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       align-items: center;
-      background: rgba(0,0,0,0.05);
-      padding: 2px 6px;
+      background: rgba(0,0,0,0.06);
+      padding: 2px 4px;
       border-radius: 8px;
     }
-    #status-bar {
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: bold;
-      color: #333;
-      background: rgba(255,255,255,0.7);
-      padding: 4px 12px;
-      border-radius: 12px;
-    }
-    /* 响应式画布容器：最大 600px，小屏按 95vw 自适应等比例正方形 */
+
     #canvas-container {
       position: relative;
       width: 95vw;
@@ -83,7 +94,9 @@
       border: 2px solid #5c3a21;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
       background: #e3a857;
+      border-radius: 4px;
     }
+
     canvas {
       position: absolute;
       top: 0;
@@ -91,6 +104,7 @@
       width: 100%;
       height: 100%;
     }
+
     #lock-overlay {
       position: fixed;
       top: 0;
@@ -104,6 +118,7 @@
       align-items: center;
       z-index: 999;
     }
+
     #lock-overlay h2 {
       margin-bottom: 12px;
       color: #333;
@@ -121,21 +136,22 @@
 
 <div id="toolbar">
   <select id="board-size-select" onchange="changeBoardSize(parseInt(this.value), true)">
-    <option value="19" selected>19路 棋盘</option>
-    <option value="13">13路 棋盘</option>
-    <option value="9">9路 棋盘</option>
+    <option value="19" selected>19路</option>
+    <option value="13">13路</option>
+    <option value="9">9路</option>
   </select>
 
-  <button id="mode-move" class="active" onclick="setMode('move')">⚫⚪ 落子模式</button>
+  <button id="mode-move" class="active" onclick="setMode('move')">⚫⚪ 落子</button>
 
   <div id="color-selector">
-    <button id="btn-color-black" class="color-sub-btn selected" onclick="setColor(1)">⚫ 黑子</button>
-    <button id="btn-color-white" class="color-sub-btn" onclick="setColor(2)">⚪ 白子</button>
+    <button id="btn-color-black" class="color-sub-btn selected" onclick="setColor(1)">⚫ 黑</button>
+    <button id="btn-color-white" class="color-sub-btn" onclick="setColor(2)">⚪ 白</button>
   </div>
 
-  <button id="mode-remove" class="remove-mode" onclick="setMode('remove')">❌ 提子/吃子</button>
-  <button id="mode-draw" onclick="setMode('draw')">✏️ 画笔模式</button>
-  <button onclick="clearDraw(true)">🗑️ 清除画笔</button>
+  <button id="mode-remove" class="remove-mode" onclick="setMode('remove')">❌ 提子</button>
+  <button id="mode-draw" onclick="setMode('draw')">✏️ 画笔</button>
+  <button id="mode-erase" onclick="setMode('erase')">🧹 橡皮擦</button>
+  <button onclick="clearDraw(true)">🗑️ 全清画笔</button>
 </div>
 
 <div id="canvas-container">
@@ -151,6 +167,7 @@
   let supabaseClient = null;
   let channel = null;
   let isAuthorized = false;
+  let currentRoom = '';
   const myUserId = 'user_' + Math.random().toString(36).substr(2, 9);
 
   const container = document.getElementById('canvas-container');
@@ -164,7 +181,6 @@
   let padding = 30;
   let cellSize = (canvasSize - padding * 2) / (size - 1);
 
-  // 动态更新画布分辨率与渲染比例
   function resizeCanvas() {
     canvasSize = container.clientWidth;
     boardCanvas.width = canvasSize;
@@ -172,7 +188,7 @@
     drawCanvas.width = canvasSize;
     drawCanvas.height = canvasSize;
 
-    padding = canvasSize * 0.05; // 边距按比例 5% 自适应
+    padding = canvasSize * 0.05;
     cellSize = (canvasSize - padding * 2) / (size - 1);
 
     if (isAuthorized) {
@@ -183,6 +199,20 @@
   window.addEventListener('resize', resizeCanvas);
 
   function checkPin() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const roomInUrl = urlParams.get('room') || todayStr;
+    currentRoom = 'go_room_' + roomInUrl;
+
+    const pinInUrl = urlParams.get('pin');
+    if (pinInUrl === CLASS_PIN) {
+      isAuthorized = true;
+      document.getElementById('lock-overlay').style.display = 'none';
+      resizeCanvas();
+      initSupabase();
+      return;
+    }
+
     const userInput = prompt("请输入课堂密码：");
     if (userInput === CLASS_PIN) {
       isAuthorized = true;
@@ -208,7 +238,8 @@
 
   function initSupabase() {
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    channel = supabaseClient.channel('go_room_101', {
+
+    channel = supabaseClient.channel(currentRoom, {
       config: { presence: { key: myUserId } }
     });
 
@@ -219,12 +250,12 @@
 
               if (userCount > 2) {
                 document.getElementById('lock-overlay').style.display = 'flex';
-                document.getElementById('lock-msg').innerText = '🚫 课堂房间满员（限制 2 人）';
+                document.getElementById('lock-msg').innerText = '🚫 本课堂房间满员（限制 2 人）';
                 document.getElementById('btn-unlock').style.display = 'none';
                 isAuthorized = false;
                 channel.unsubscribe();
               } else if (userCount === 2) {
-                updateStatus('🟢 中美双方已连接 (2/2人) - 画面完美同步');
+                updateStatus('🟢 中美双方已连接 (2/2人) - 房间:' + currentRoom.replace('go_room_',''));
               } else {
                 updateStatus('🟡 已进入房间 (1/2人) - 等待对方加入...');
               }
@@ -246,11 +277,10 @@
               board[payload.gx][payload.gy] = 0;
               drawBoard();
             })
-            // 核心修复：把接收到的 0~1 归一化百分比坐标还原为当前设备的实际像素坐标
             .on('broadcast', { event: 'draw' }, ({ payload }) => {
               const from = { x: payload.from.rx * canvasSize, y: payload.from.ry * canvasSize };
               const to = { x: payload.to.rx * canvasSize, y: payload.to.ry * canvasSize };
-              drawLine(from, to, '#ff0000');
+              drawLine(from, to, payload.isEraser || false);
             })
             .on('broadcast', { event: 'clear' }, () => clearDraw(false))
             .on('broadcast', { event: 'resize' }, ({ payload }) => {
@@ -341,6 +371,7 @@
     document.getElementById('mode-move').className = mode === 'move' ? 'active' : '';
     document.getElementById('mode-remove').className = mode === 'remove' ? 'remove-mode active' : 'remove-mode';
     document.getElementById('mode-draw').className = mode === 'draw' ? 'active' : '';
+    document.getElementById('mode-erase').className = mode === 'erase' ? 'active' : '';
     document.getElementById('color-selector').style.display = mode === 'move' ? 'flex' : 'none';
   }
 
@@ -377,7 +408,7 @@
         }
         drawBoard();
       }
-    } else {
+    } else if (mode === 'draw' || mode === 'erase') {
       isDrawing = true;
       lastPos = { x, y };
     }
@@ -385,23 +416,24 @@
 
   drawCanvas.addEventListener('pointermove', (e) => {
     if (!isAuthorized) return;
-    if (mode === 'draw' && isDrawing) {
+    if ((mode === 'draw' || mode === 'erase') && isDrawing) {
       const rect = drawCanvas.getBoundingClientRect();
       const currentPos = {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
       };
 
-      drawLine(lastPos, currentPos, '#ff0000');
+      const isEraser = mode === 'erase';
+      drawLine(lastPos, currentPos, isEraser);
 
-      // 核心修复：发送 0.0~1.0 的相对百分比坐标（rx, ry）
       if (channel) {
         channel.send({
           type: 'broadcast',
           event: 'draw',
           payload: {
             from: { rx: lastPos.x / canvasSize, ry: lastPos.y / canvasSize },
-            to: { rx: currentPos.x / canvasSize, ry: currentPos.y / canvasSize }
+            to: { rx: currentPos.x / canvasSize, ry: currentPos.y / canvasSize },
+            isEraser: isEraser
           }
         });
       }
@@ -411,14 +443,25 @@
 
   drawCanvas.addEventListener('pointerup', () => isDrawing = false);
 
-  function drawLine(from, to, color) {
+  function drawLine(from, to, isEraser = false) {
+    dCtx.save();
     dCtx.beginPath();
     dCtx.moveTo(from.x, from.y);
     dCtx.lineTo(to.x, to.y);
-    dCtx.strokeStyle = color;
-    dCtx.lineWidth = Math.max(2, canvasSize / 200);
+
+    if (isEraser) {
+      // 橡皮擦模式：使用 destination-out 混合模式擦除画笔图层
+      dCtx.globalCompositeOperation = 'destination-out';
+      dCtx.lineWidth = Math.max(12, canvasSize / 30); // 橡皮擦笔触稍粗
+    } else {
+      dCtx.globalCompositeOperation = 'source-over';
+      dCtx.strokeStyle = '#ff0000';
+      dCtx.lineWidth = Math.max(2, canvasSize / 200);
+    }
+
     dCtx.lineCap = 'round';
     dCtx.stroke();
+    dCtx.restore();
   }
 
   function clearDraw(broadcast = false) {
