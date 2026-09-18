@@ -19,7 +19,7 @@
     }
 
     #status-bar {
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       font-size: 14px;
       font-weight: bold;
       color: #333;
@@ -28,6 +28,27 @@
       border-radius: 20px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.1);
       text-align: center;
+    }
+
+    #admin-panel {
+      display: none;
+      margin-bottom: 10px;
+      width: 95vw;
+      max-width: 600px;
+      text-align: center;
+    }
+
+    #btn-gen-link {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(33, 150, 243, 0.4);
+      width: 100%;
     }
 
     #toolbar {
@@ -132,6 +153,10 @@
   <button id="btn-unlock" onclick="checkPin()">点击输入密码解锁</button>
 </div>
 
+<div id="admin-panel">
+  <button id="btn-gen-link" onclick="generateTeacherLink()">✨ 点击生成并复制“老师专属免密链接”</button>
+</div>
+
 <div id="status-bar">🟢 当前在线：等待连接...</div>
 
 <div id="toolbar">
@@ -151,7 +176,7 @@
   <button id="mode-remove" class="remove-mode" onclick="setMode('remove')">❌ 提子</button>
   <button id="mode-draw" onclick="setMode('draw')">✏️ 画笔</button>
   <button id="mode-erase" onclick="setMode('erase')">🧹 橡皮擦</button>
-  <button onclick="clearDraw(true)">🗑️ 全清画笔</button>
+  <button onclick="clearDraw(true)">🗑️ 清画笔</button>
 </div>
 
 <div id="canvas-container">
@@ -198,20 +223,44 @@
 
   window.addEventListener('resize', resizeCanvas);
 
+  function generateTeacherLink() {
+    const uniqueRoom = 'room_' + Math.random().toString(36).substr(2, 6);
+    const baseURL = window.location.origin + window.location.pathname;
+    const teacherURL = `${baseURL}?room=${uniqueRoom}`;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(teacherURL).then(() => {
+        alert(`🎉 成功生成专属免密上课链接！\n已复制到剪贴板，可以直接粘贴发给老师：\n\n${teacherURL}`);
+      }).catch(() => {
+        prompt("请复制以下专属链接发给老师：", teacherURL);
+      });
+    } else {
+      prompt("请复制以下专属链接发给老师：", teacherURL);
+    }
+  }
+
   function checkPin() {
     const urlParams = new URLSearchParams(window.location.search);
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const roomInUrl = urlParams.get('room') || todayStr;
-    currentRoom = 'go_room_' + roomInUrl;
 
-    const pinInUrl = urlParams.get('pin');
-    if (pinInUrl === CLASS_PIN) {
+    if (urlParams.get('admin') === 'true') {
+      document.getElementById('admin-panel').style.display = 'block';
+    }
+
+    const roomInUrl = urlParams.get('room');
+
+    // If a room parameter exists in the URL, grant immediate access without PIN
+    if (roomInUrl) {
+      currentRoom = 'go_room_' + roomInUrl;
       isAuthorized = true;
       document.getElementById('lock-overlay').style.display = 'none';
       resizeCanvas();
       initSupabase();
       return;
     }
+
+    // Default room fallback for direct visits to goclass123.com
+    const todayStr = new Date().toISOString().slice(0, 10);
+    currentRoom = 'go_room_' + todayStr;
 
     const userInput = prompt("请输入课堂密码：");
     if (userInput === CLASS_PIN) {
@@ -450,9 +499,8 @@
     dCtx.lineTo(to.x, to.y);
 
     if (isEraser) {
-      // 橡皮擦模式：使用 destination-out 混合模式擦除画笔图层
       dCtx.globalCompositeOperation = 'destination-out';
-      dCtx.lineWidth = Math.max(12, canvasSize / 30); // 橡皮擦笔触稍粗
+      dCtx.lineWidth = Math.max(12, canvasSize / 30);
     } else {
       dCtx.globalCompositeOperation = 'source-over';
       dCtx.strokeStyle = '#ff0000';
