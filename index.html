@@ -18,6 +18,62 @@
       touch-action: none;
     }
 
+    /* 纯 Admin 页面专属样式 */
+    #admin-only-page {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 80vh;
+      width: 90vw;
+      max-width: 480px;
+      text-align: center;
+      background: #ffffff;
+      padding: 30px 20px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+      margin-top: 40px;
+    }
+
+    #admin-only-page h2 {
+      margin-top: 0;
+      color: #333;
+      font-size: 22px;
+    }
+
+    #admin-only-page p {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    #btn-admin-generate {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+      width: 100%;
+      transition: background 0.2s;
+    }
+
+    #btn-admin-generate:active {
+      background: #1976D2;
+    }
+
+    /* 棋盘界面样式 */
+    #classroom-page {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
     #status-bar {
       margin-bottom: 8px;
       font-size: 14px;
@@ -28,27 +84,6 @@
       border-radius: 20px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.1);
       text-align: center;
-    }
-
-    #admin-panel {
-      display: none;
-      margin-bottom: 10px;
-      width: 95vw;
-      max-width: 600px;
-      text-align: center;
-    }
-
-    #btn-gen-link {
-      background: #2196F3;
-      color: white;
-      border: none;
-      padding: 10px 16px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: bold;
-      cursor: pointer;
-      box-shadow: 0 2px 6px rgba(33, 150, 243, 0.4);
-      width: 100%;
     }
 
     #toolbar {
@@ -148,40 +183,47 @@
 </head>
 <body>
 
-<div id="lock-overlay">
+<!-- 纯密码解锁遮罩（仅限无 room 且非 admin 访问时） -->
+<div id="lock-overlay" style="display: none;">
   <h2 id="lock-msg">🔒 围棋教室访问受限</h2>
   <button id="btn-unlock" onclick="checkPin()">点击输入密码解锁</button>
 </div>
 
-<div id="admin-panel">
-  <button id="btn-gen-link" onclick="generateTeacherLink()">✨ 点击生成并复制“老师专属免密链接”</button>
+<!-- 纯 Admin 管理控制台界面 -->
+<div id="admin-only-page">
+  <h2>🛠️ GoClass123 控制台</h2>
+  <p>点击下方按钮，自动生成独占的专属房间链接。链接会自动复制到剪贴板，直接粘贴发送给老师即可。</p>
+  <button id="btn-admin-generate" onclick="generateTeacherLink()">✨ 生成并复制“老师专属免密链接”</button>
 </div>
 
-<div id="status-bar">🟢 当前在线：等待连接...</div>
+<!-- 围棋课堂教学界面 -->
+<div id="classroom-page" style="display: none;">
+  <div id="status-bar">🟢 当前在线：等待连接...</div>
 
-<div id="toolbar">
-  <select id="board-size-select" onchange="changeBoardSize(parseInt(this.value), true)">
-    <option value="19" selected>19路</option>
-    <option value="13">13路</option>
-    <option value="9">9路</option>
-  </select>
+  <div id="toolbar">
+    <select id="board-size-select" onchange="changeBoardSize(parseInt(this.value), true)">
+      <option value="19" selected>19路</option>
+      <option value="13">13路</option>
+      <option value="9">9路</option>
+    </select>
 
-  <button id="mode-move" class="active" onclick="setMode('move')">⚫⚪ 落子</button>
+    <button id="mode-move" class="active" onclick="setMode('move')">⚫⚪ 落子</button>
 
-  <div id="color-selector">
-    <button id="btn-color-black" class="color-sub-btn selected" onclick="setColor(1)">⚫ 黑</button>
-    <button id="btn-color-white" class="color-sub-btn" onclick="setColor(2)">⚪ 白</button>
+    <div id="color-selector">
+      <button id="btn-color-black" class="color-sub-btn selected" onclick="setColor(1)">⚫ 黑</button>
+      <button id="btn-color-white" class="color-sub-btn" onclick="setColor(2)">⚪ 白</button>
+    </div>
+
+    <button id="mode-remove" class="remove-mode" onclick="setMode('remove')">❌ 提子</button>
+    <button id="mode-draw" onclick="setMode('draw')">✏️ 画笔</button>
+    <button id="mode-erase" onclick="setMode('erase')">🧹 橡皮擦</button>
+    <button onclick="clearDraw(true)">🗑️ 清画笔</button>
   </div>
 
-  <button id="mode-remove" class="remove-mode" onclick="setMode('remove')">❌ 提子</button>
-  <button id="mode-draw" onclick="setMode('draw')">✏️ 画笔</button>
-  <button id="mode-erase" onclick="setMode('erase')">🧹 橡皮擦</button>
-  <button onclick="clearDraw(true)">🗑️ 清画笔</button>
-</div>
-
-<div id="canvas-container">
-  <canvas id="boardCanvas"></canvas>
-  <canvas id="drawCanvas"></canvas>
+  <div id="canvas-container">
+    <canvas id="boardCanvas"></canvas>
+    <canvas id="drawCanvas"></canvas>
+  </div>
 </div>
 
 <script>
@@ -230,7 +272,7 @@
 
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(teacherURL).then(() => {
-        alert(`🎉 成功生成专属免密上课链接！\n已复制到剪贴板，可以直接粘贴发给老师：\n\n${teacherURL}`);
+        alert(`🎉 成功生成专属免密上课链接！\n\n已自动复制到剪贴板，可以直接粘贴发给老师：\n\n${teacherURL}`);
       }).catch(() => {
         prompt("请复制以下专属链接发给老师：", teacherURL);
       });
@@ -242,13 +284,21 @@
   function checkPin() {
     const urlParams = new URLSearchParams(window.location.search);
 
+    // 1. 如果是 Admin 模式访问（?admin=true）
     if (urlParams.get('admin') === 'true') {
-      document.getElementById('admin-panel').style.display = 'block';
+      document.getElementById('admin-only-page').style.display = 'flex';
+      document.getElementById('classroom-page').style.display = 'none';
+      document.getElementById('lock-overlay').style.display = 'none';
+      return;
     }
+
+    // 显示课堂页面
+    document.getElementById('admin-only-page').style.display = 'none';
+    document.getElementById('classroom-page').style.display = 'flex';
 
     const roomInUrl = urlParams.get('room');
 
-    // If a room parameter exists in the URL, grant immediate access without PIN
+    // 2. 如果 URL 带有 ?room=xxx 参数，免密直接进入房间
     if (roomInUrl) {
       currentRoom = 'go_room_' + roomInUrl;
       isAuthorized = true;
@@ -258,7 +308,8 @@
       return;
     }
 
-    // Default room fallback for direct visits to goclass123.com
+    // 3. 兜底逻辑：直接访问 goclass123.com，要求输入 PIN
+    document.getElementById('lock-overlay').style.display = 'flex';
     const todayStr = new Date().toISOString().slice(0, 10);
     currentRoom = 'go_room_' + todayStr;
 
