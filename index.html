@@ -24,6 +24,8 @@
       justify-content: center;
       gap: 8px;
       align-items: center;
+      width: 100%;
+      max-width: 600px;
     }
     button, select {
       padding: 10px 14px;
@@ -71,10 +73,13 @@
       padding: 4px 12px;
       border-radius: 12px;
     }
+    /* 响应式画布容器：最大 600px，小屏按 95vw 自适应等比例正方形 */
     #canvas-container {
       position: relative;
-      width: 600px;
-      height: 600px;
+      width: 95vw;
+      height: 95vw;
+      max-width: 600px;
+      max-height: 600px;
       border: 2px solid #5c3a21;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
       background: #e3a857;
@@ -107,7 +112,6 @@
 </head>
 <body>
 
-<!-- 解锁/人数限制遮罩 -->
 <div id="lock-overlay">
   <h2 id="lock-msg">🔒 围棋教室访问受限</h2>
   <button id="btn-unlock" onclick="checkPin()">点击输入密码解锁</button>
@@ -135,13 +139,12 @@
 </div>
 
 <div id="canvas-container">
-  <canvas id="boardCanvas" width="600" height="600"></canvas>
-  <canvas id="drawCanvas" width="600" height="600"></canvas>
+  <canvas id="boardCanvas"></canvas>
+  <canvas id="drawCanvas"></canvas>
 </div>
 
 <script>
   const CLASS_PIN = '8888';
-
   const SUPABASE_URL = 'https://vgxlhcbdemlnzazfwyam.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_OTz9K2t_op2cn7LnKlewXA_H3Tv958m';
 
@@ -150,13 +153,42 @@
   let isAuthorized = false;
   const myUserId = 'user_' + Math.random().toString(36).substr(2, 9);
 
+  const container = document.getElementById('canvas-container');
+  const boardCanvas = document.getElementById('boardCanvas');
+  const drawCanvas = document.getElementById('drawCanvas');
+  const bCtx = boardCanvas.getContext('2d');
+  const dCtx = drawCanvas.getContext('2d');
+
+  let canvasSize = 600;
+  let size = 19;
+  let padding = 30;
+  let cellSize = (canvasSize - padding * 2) / (size - 1);
+
+  // 动态更新画布分辨率与渲染比例
+  function resizeCanvas() {
+    canvasSize = container.clientWidth;
+    boardCanvas.width = canvasSize;
+    boardCanvas.height = canvasSize;
+    drawCanvas.width = canvasSize;
+    drawCanvas.height = canvasSize;
+
+    padding = canvasSize * 0.05; // 边距按比例 5% 自适应
+    cellSize = (canvasSize - padding * 2) / (size - 1);
+
+    if (isAuthorized) {
+      drawBoard();
+    }
+  }
+
+  window.addEventListener('resize', resizeCanvas);
+
   function checkPin() {
     const userInput = prompt("请输入课堂密码：");
     if (userInput === CLASS_PIN) {
       isAuthorized = true;
       document.getElementById('lock-overlay').style.display = 'none';
+      resizeCanvas();
       initSupabase();
-      drawBoard();
     } else if (userInput !== null) {
       alert("密码错误，无法访问！");
     }
@@ -180,69 +212,56 @@
       config: { presence: { key: myUserId } }
     });
 
-    // 1. 监听 Presence 在线人数
     channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        const userCount = Object.keys(state).length;
+            .on('presence', { event: 'sync' }, () => {
+              const state = channel.presenceState();
+              const userCount = Object.keys(state).length;
 
-        if (userCount > 2) {
-          // 超过 2 人，拦截第 3 个及以上的人
-          document.getElementById('lock-overlay').style.display = 'flex';
-          document.getElementById('lock-msg').innerText = '🚫 课堂房间满员（限制 2 人）';
-          document.getElementById('btn-unlock').style.display = 'none';
-          isAuthorized = false;
-          channel.unsubscribe();
-        } else if (userCount === 2) {
-          updateStatus('🟢 中美双方已连接 (2/2人) - 已自动重置空棋盘');
-        } else {
-          updateStatus('🟡 已进入房间 (1/2人) - 等待对方加入...');
-        }
-      })
-      .on('presence', { event: 'join' }, ({ newPresences }) => {
-        // 当第 2 个人加入时，广播 reset_board 指令，确保双方同时清空棋盘
-        const state = channel.presenceState();
-        if (Object.keys(state).length === 2) {
-          channel.send({ type: 'broadcast', event: 'reset_board' });
-          resetToEmptyBoard();
-        }
-      })
-      // 2. 监听广播消息
-      .on('broadcast', { event: 'reset_board' }, () => {
-        resetToEmptyBoard();
-      })
-      .on('broadcast', { event: 'move' }, ({ payload }) => {
-        board[payload.gx][payload.gy] = payload.color;
-        setColor(payload.color === 1 ? 2 : 1);
-        drawBoard();
-      })
-      .on('broadcast', { event: 'remove' }, ({ payload }) => {
-        board[payload.gx][payload.gy] = 0;
-        drawBoard();
-      })
-      .on('broadcast', { event: 'draw' }, ({ payload }) => {
-        drawLine(payload.from, payload.to, '#ff0000');
-      })
-      .on('broadcast', { event: 'clear' }, () => clearDraw(false))
-      .on('broadcast', { event: 'resize' }, ({ payload }) => {
-        changeBoardSize(payload.size, false);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.track({ online_at: new Date().toISOString() });
-        }
-      });
+              if (userCount > 2) {
+                document.getElementById('lock-overlay').style.display = 'flex';
+                document.getElementById('lock-msg').innerText = '🚫 课堂房间满员（限制 2 人）';
+                document.getElementById('btn-unlock').style.display = 'none';
+                isAuthorized = false;
+                channel.unsubscribe();
+              } else if (userCount === 2) {
+                updateStatus('🟢 中美双方已连接 (2/2人) - 画面完美同步');
+              } else {
+                updateStatus('🟡 已进入房间 (1/2人) - 等待对方加入...');
+              }
+            })
+            .on('presence', { event: 'join' }, () => {
+              const state = channel.presenceState();
+              if (Object.keys(state).length === 2) {
+                channel.send({ type: 'broadcast', event: 'reset_board' });
+                resetToEmptyBoard();
+              }
+            })
+            .on('broadcast', { event: 'reset_board' }, () => resetToEmptyBoard())
+            .on('broadcast', { event: 'move' }, ({ payload }) => {
+              board[payload.gx][payload.gy] = payload.color;
+              setColor(payload.color === 1 ? 2 : 1);
+              drawBoard();
+            })
+            .on('broadcast', { event: 'remove' }, ({ payload }) => {
+              board[payload.gx][payload.gy] = 0;
+              drawBoard();
+            })
+            // 核心修复：把接收到的 0~1 归一化百分比坐标还原为当前设备的实际像素坐标
+            .on('broadcast', { event: 'draw' }, ({ payload }) => {
+              const from = { x: payload.from.rx * canvasSize, y: payload.from.ry * canvasSize };
+              const to = { x: payload.to.rx * canvasSize, y: payload.to.ry * canvasSize };
+              drawLine(from, to, '#ff0000');
+            })
+            .on('broadcast', { event: 'clear' }, () => clearDraw(false))
+            .on('broadcast', { event: 'resize' }, ({ payload }) => {
+              changeBoardSize(payload.size, false);
+            })
+            .subscribe(async (status) => {
+              if (status === 'SUBSCRIBED') {
+                await channel.track({ online_at: new Date().toISOString() });
+              }
+            });
   }
-
-  let size = 19;
-  const padding = 30;
-  const containerSize = 600;
-  let cellSize = (containerSize - padding * 2) / (size - 1);
-
-  const boardCanvas = document.getElementById('boardCanvas');
-  const drawCanvas = document.getElementById('drawCanvas');
-  const bCtx = boardCanvas.getContext('2d');
-  const dCtx = drawCanvas.getContext('2d');
 
   let mode = 'move';
   let currentColor = 1;
@@ -253,7 +272,7 @@
   function changeBoardSize(newSize, broadcast = false) {
     if (!isAuthorized) return;
     size = newSize;
-    cellSize = (containerSize - padding * 2) / (size - 1);
+    cellSize = (canvasSize - padding * 2) / (size - 1);
     document.getElementById('board-size-select').value = size;
 
     resetToEmptyBoard();
@@ -276,20 +295,20 @@
 
   function drawBoard() {
     if (!isAuthorized) return;
-    bCtx.clearRect(0, 0, containerSize, containerSize);
+    bCtx.clearRect(0, 0, canvasSize, canvasSize);
 
     bCtx.strokeStyle = '#000000';
-    bCtx.lineWidth = 1.5;
+    bCtx.lineWidth = Math.max(1, canvasSize / 400);
 
     for (let i = 0; i < size; i++) {
       bCtx.beginPath();
       bCtx.moveTo(padding + i * cellSize, padding);
-      bCtx.lineTo(padding + i * cellSize, containerSize - padding);
+      bCtx.lineTo(padding + i * cellSize, canvasSize - padding);
       bCtx.stroke();
 
       bCtx.beginPath();
       bCtx.moveTo(padding, padding + i * cellSize);
-      bCtx.lineTo(containerSize - padding, padding + i * cellSize);
+      bCtx.lineTo(canvasSize - padding, padding + i * cellSize);
       bCtx.stroke();
     }
 
@@ -297,7 +316,7 @@
     const stars = getStarPoints(size);
     stars.forEach(([x, y]) => {
       bCtx.beginPath();
-      bCtx.arc(padding + x * cellSize, padding + y * cellSize, 4, 0, Math.PI * 2);
+      bCtx.arc(padding + x * cellSize, padding + y * cellSize, Math.max(2.5, canvasSize / 150), 0, Math.PI * 2);
       bCtx.fill();
     });
 
@@ -335,10 +354,8 @@
   drawCanvas.addEventListener('pointerdown', (e) => {
     if (!isAuthorized) return;
     const rect = drawCanvas.getBoundingClientRect();
-    const scaleX = containerSize / rect.width;
-    const scaleY = containerSize / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
     const gx = Math.round((x - padding) / cellSize);
     const gy = Math.round((y - padding) / cellSize);
@@ -370,16 +387,23 @@
     if (!isAuthorized) return;
     if (mode === 'draw' && isDrawing) {
       const rect = drawCanvas.getBoundingClientRect();
-      const scaleX = containerSize / rect.width;
-      const scaleY = containerSize / rect.height;
       const currentPos = {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
       };
 
       drawLine(lastPos, currentPos, '#ff0000');
+
+      // 核心修复：发送 0.0~1.0 的相对百分比坐标（rx, ry）
       if (channel) {
-        channel.send({ type: 'broadcast', event: 'draw', payload: { from: lastPos, to: currentPos } });
+        channel.send({
+          type: 'broadcast',
+          event: 'draw',
+          payload: {
+            from: { rx: lastPos.x / canvasSize, ry: lastPos.y / canvasSize },
+            to: { rx: currentPos.x / canvasSize, ry: currentPos.y / canvasSize }
+          }
+        });
       }
       lastPos = currentPos;
     }
@@ -392,14 +416,14 @@
     dCtx.moveTo(from.x, from.y);
     dCtx.lineTo(to.x, to.y);
     dCtx.strokeStyle = color;
-    dCtx.lineWidth = 3;
+    dCtx.lineWidth = Math.max(2, canvasSize / 200);
     dCtx.lineCap = 'round';
     dCtx.stroke();
   }
 
   function clearDraw(broadcast = false) {
     if (!isAuthorized) return;
-    dCtx.clearRect(0, 0, containerSize, containerSize);
+    dCtx.clearRect(0, 0, canvasSize, canvasSize);
     if (broadcast && channel) channel.send({ type: 'broadcast', event: 'clear' });
   }
 
