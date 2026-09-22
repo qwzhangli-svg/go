@@ -7,9 +7,14 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden; /* 防止出现全屏滚动条 */
+    }
     body {
       margin: 0;
-      padding: 10px 0;
+      padding: 6px 0;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -72,22 +77,24 @@
       flex-direction: column;
       align-items: center;
       width: 100%;
+      height: 100%;
     }
 
     #status-bar {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       font-size: 14px;
       font-weight: bold;
       color: #333;
       background: rgba(255,255,255,0.85);
-      padding: 6px 16px;
+      padding: 4px 14px;
       border-radius: 20px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.1);
       text-align: center;
+      flex-shrink: 0;
     }
 
     #toolbar {
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
@@ -95,10 +102,11 @@
       align-items: center;
       width: 95vw;
       max-width: 600px;
+      flex-shrink: 0;
     }
 
     button, select {
-      padding: 8px 12px;
+      padding: 6px 10px;
       font-size: 14px;
       border-radius: 6px;
       border: 1px solid #999;
@@ -121,7 +129,7 @@
     }
 
     .color-sub-btn {
-      padding: 6px 10px;
+      padding: 4px 8px;
       font-size: 13px;
       border: 2px solid #666;
     }
@@ -141,16 +149,18 @@
       border-radius: 8px;
     }
 
+    /* 棋盘容器：加入视口高度（vh/dvh）限制，防止底部截断 */
     #canvas-container {
       position: relative;
       width: 95vw;
       height: 95vw;
-      max-width: 600px;
-      max-height: 600px;
+      max-width: calc(100dvh - 110px);
+      max-height: calc(100dvh - 110px);
       border: 2px solid #5c3a21;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
       background: #e3a857;
       border-radius: 4px;
+      aspect-ratio: 1 / 1;
     }
 
     canvas {
@@ -159,6 +169,34 @@
       left: 0;
       width: 100%;
       height: 100%;
+    }
+
+    /* 针对 iPad / 手机横屏 (Landscape) 的专属优缩微调 */
+    @media screen and (orientation: landscape) and (max-height: 800px) {
+      body {
+        padding: 4px 0;
+      }
+      #status-bar {
+        font-size: 12px;
+        padding: 2px 10px;
+        margin-bottom: 4px;
+      }
+      #toolbar {
+        margin-bottom: 4px;
+        gap: 4px;
+      }
+      button, select {
+        padding: 4px 8px;
+        font-size: 12px;
+      }
+      .color-sub-btn {
+        padding: 2px 6px;
+        font-size: 12px;
+      }
+      #canvas-container {
+        max-width: calc(100dvh - 85px);
+        max-height: calc(100dvh - 85px);
+      }
     }
 
     #lock-overlay {
