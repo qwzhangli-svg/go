@@ -10,7 +10,7 @@
     html, body {
       width: 100%;
       height: 100%;
-      overflow: hidden; /* 防止出现全屏滚动条 */
+      overflow: hidden;
     }
     body {
       margin: 0;
@@ -149,7 +149,7 @@
       border-radius: 8px;
     }
 
-    /* 棋盘容器：加入视口高度（vh/dvh）限制，防止底部截断 */
+    /* 棋盘容器 */
     #canvas-container {
       position: relative;
       width: 95vw;
@@ -171,7 +171,6 @@
       height: 100%;
     }
 
-    /* 针对 iPad / 手机横屏 (Landscape) 的专属优缩微调 */
     @media screen and (orientation: landscape) and (max-height: 800px) {
       body {
         padding: 4px 0;
@@ -286,6 +285,9 @@
   let padding = 30;
   let cellSize = (canvasSize - padding * 2) / (size - 1);
 
+  // 全局标记最后一手棋的坐标
+  let lastMove = null;
+
   function resizeCanvas() {
     canvasSize = container.clientWidth;
     boardCanvas.width = canvasSize;
@@ -322,7 +324,6 @@
   function checkPin() {
     const urlParams = new URLSearchParams(window.location.search);
 
-    // 1. 如果是 Admin 模式访问（?admin=true）
     if (urlParams.get('admin') === 'true') {
       document.getElementById('admin-only-page').style.display = 'flex';
       document.getElementById('classroom-page').style.display = 'none';
@@ -330,13 +331,11 @@
       return;
     }
 
-    // 显示课堂页面
     document.getElementById('admin-only-page').style.display = 'none';
     document.getElementById('classroom-page').style.display = 'flex';
 
     const roomInUrl = urlParams.get('room');
 
-    // 2. 如果 URL 带有 ?room=xxx 参数，免密直接进入房间
     if (roomInUrl) {
       currentRoom = 'go_room_' + roomInUrl;
       isAuthorized = true;
@@ -346,7 +345,6 @@
       return;
     }
 
-    // 3. 兜底逻辑：直接访问 goclass123.com，要求输入 PIN
     document.getElementById('lock-overlay').style.display = 'flex';
     const todayStr = new Date().toISOString().slice(0, 10);
     currentRoom = 'go_room_' + todayStr;
@@ -369,6 +367,7 @@
   function resetToEmptyBoard() {
     board = Array.from({ length: size }, () => Array(size).fill(0));
     currentColor = 1;
+    lastMove = null; // 清空最后落子标记
     setColor(1);
     clearDraw(false);
     drawBoard();
@@ -408,11 +407,16 @@
             .on('broadcast', { event: 'reset_board' }, () => resetToEmptyBoard())
             .on('broadcast', { event: 'move' }, ({ payload }) => {
               board[payload.gx][payload.gy] = payload.color;
+              lastMove = { gx: payload.gx, gy: payload.gy }; // 同步最新落子坐标
               setColor(payload.color === 1 ? 2 : 1);
               drawBoard();
             })
             .on('broadcast', { event: 'remove' }, ({ payload }) => {
               board[payload.gx][payload.gy] = 0;
+              // 如果吃掉或提走了最后落子的那个棋子，清除红点标记
+              if (lastMove && lastMove.gx === payload.gx && lastMove.gy === payload.gy) {
+                lastMove = null;
+              }
               drawBoard();
             })
             .on('broadcast', { event: 'draw' }, ({ payload }) => {
@@ -468,6 +472,7 @@
     bCtx.strokeStyle = '#000000';
     bCtx.lineWidth = Math.max(1, canvasSize / 400);
 
+    // 绘制棋盘网格线
     for (let i = 0; i < size; i++) {
       bCtx.beginPath();
       bCtx.moveTo(padding + i * cellSize, padding);
@@ -480,6 +485,7 @@
       bCtx.stroke();
     }
 
+    // 绘制星位
     bCtx.fillStyle = '#000000';
     const stars = getStarPoints(size);
     stars.forEach(([x, y]) => {
@@ -488,6 +494,7 @@
       bCtx.fill();
     });
 
+    // 绘制棋子
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) {
         if (board[x][y] !== 0) {
@@ -498,6 +505,14 @@
           bCtx.strokeStyle = '#333333';
           bCtx.lineWidth = 1;
           bCtx.stroke();
+
+          // 高亮标记最后一手棋（绘制中心红色方圈/圆点）
+          if (lastMove && lastMove.gx === x && lastMove.gy === y) {
+            bCtx.beginPath();
+            bCtx.arc(padding + x * cellSize, padding + y * cellSize, cellSize * 0.18, 0, Math.PI * 2);
+            bCtx.fillStyle = '#ff1744'; // 鲜艳红色
+            bCtx.fill();
+          }
         }
       }
     }
@@ -520,18 +535,32 @@
     document.getElementById('btn-color-white').className = currentColor === 2 ? 'color-sub-btn selected' : 'color-sub-btn';
   }
 
+  // 辅助计算精确的 Canvas 坐标（自动修正电脑端与移动端的 CSS 缩放比例偏差）
+  function getCanvasPos(e) {
+    const rect = drawCanvas.getBoundingClientRect();
+    const scaleX = drawCanvas.width / rect.width;
+    const scaleY = drawCanvas.height / rect.height;
+
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  }
+
   drawCanvas.addEventListener('pointerdown', (e) => {
     if (!isAuthorized) return;
-    const rect = drawCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
 
-    const gx = Math.round((x - padding) / cellSize);
-    const gy = Math.round((y - padding) / cellSize);
+    // 使用精准计算的绝对点位
+    const pos = getCanvasPos(e);
+
+    const gx = Math.round((pos.x - padding) / cellSize);
+    const gy = Math.round((pos.y - padding) / cellSize);
 
     if (mode === 'move') {
       if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] === 0) {
         board[gx][gy] = currentColor;
+        lastMove = { gx, gy }; // 记录自己这手的落子
+
         if (channel) {
           channel.send({ type: 'broadcast', event: 'move', payload: { gx, gy, color: currentColor } });
         }
@@ -541,6 +570,9 @@
     } else if (mode === 'remove') {
       if (gx >= 0 && gx < size && gy >= 0 && gy < size && board[gx][gy] !== 0) {
         board[gx][gy] = 0;
+        if (lastMove && lastMove.gx === gx && lastMove.gy === gy) {
+          lastMove = null;
+        }
         if (channel) {
           channel.send({ type: 'broadcast', event: 'remove', payload: { gx, gy } });
         }
@@ -548,20 +580,16 @@
       }
     } else if (mode === 'draw' || mode === 'erase') {
       isDrawing = true;
-      lastPos = { x, y };
+      lastPos = pos;
     }
   });
 
   drawCanvas.addEventListener('pointermove', (e) => {
     if (!isAuthorized) return;
     if ((mode === 'draw' || mode === 'erase') && isDrawing) {
-      const rect = drawCanvas.getBoundingClientRect();
-      const currentPos = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      };
-
+      const currentPos = getCanvasPos(e);
       const isEraser = mode === 'erase';
+
       drawLine(lastPos, currentPos, isEraser);
 
       if (channel) {
